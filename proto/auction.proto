@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+option go_package = "https://github.com/magnusblarsen/DSYS_auction_system/proto";
+
+package proto;
+
+//protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/auction.proto
+
+service Services{
+    rpc Bid(BidAmount) returns (Ack);
+    rpc Result(ResultRequest) returns (Outcome);
+}
+
+message ResultRequest {
+}
+
+message BidAmount {
+    int64 amount = 1;
+    int64 bidderId = 2;
+}
+
+message Ack {
+    bool ack = 1;
+}
+
+message Outcome {
+    int64 outcome = 1;
+    bool over = 2;
+}
