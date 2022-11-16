@@ -21,6 +21,7 @@ message BidAmount {
 
 message Ack {
     bool ack = 1;
+    int64 highestBid = 2;
 }
 
 message Outcome {
