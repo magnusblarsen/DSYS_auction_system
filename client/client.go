@@ -16,16 +16,17 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-var clientsName = flag.String("name", "default", "Senders name")
-var clientId = flag.String("id", "", "client id")
+var clientId = flag.Int("id", 0, "client id")
 
-var client grpcChat.ServicesClient
-var ServerConns map[int32]grpcChat.ServicesClient
+type Client struct {
+	serverConns map[int64]grpcChat.ServicesClient
+	clientId    int
+}
 
 func main() {
 	flag.Parse()
 
-	file, err := os.OpenFile(fmt.Sprintf("client_%s", *clientsName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	file, err := os.OpenFile(fmt.Sprintf("client_%d", *clientId), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
@@ -34,43 +35,55 @@ func main() {
 	multiWriter := io.MultiWriter(os.Stdout, file)
 	log.SetOutput(multiWriter)
 
-	fmt.Println("--- CLIENT APP ---")
-	go connectToServers()
+	clientHandle := &Client{
+		serverConns: make(map[int64]grpcChat.ServicesClient),
+		clientId:    *clientId,
+	}
 
-	parseInput()
+	fmt.Println("--- CLIENT APP ---")
+	clientHandle.connectToServers()
+
+	clientHandle.parseInput()
+	//FIXME: Lige nu har vi ikke nogen defer conn.Close()
+	// for _, s := range clientHandle.serverConns {
+	// 	defer s.Close()
+	// }
 }
 
-func connectToServers() {
-	ServerConns = make(map[int32]grpcChat.ServicesClient)
+func (c *Client) connectToServers() {
 	var opts []grpc.DialOption
 	opts = append(
 		opts, grpc.WithBlock(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 
-	portfile, err := os.Open("server-addresses.txt")
-	defer portfile.Close()
+	portfile, err := os.Open("client/server-addresses.txt")
 	if err != nil {
 		log.Printf("could not read text file with servers: %v", err)
 	}
+	defer portfile.Close()
 	fileScanner := bufio.NewScanner(portfile)
 	for fileScanner.Scan() {
-		port, _ := strconv.ParseInt(fileScanner.Text(), 10, 32)
-		port32 := int32(port)
+		port, convErr := strconv.ParseInt(fileScanner.Text(), 10, 64)
+		if convErr != nil {
+			log.Printf("Could not convert: %v", convErr)
+		}
 
-		var conn *grpc.ClientConn
-		log.Printf("id %v is trying to dial: %v\n", clientId, port)
-		conn, err := grpc.Dial(fmt.Sprintf("localhost:%v", port), opts...)
+		log.Printf("id %v is trying to dial: %v\n", *clientId, port)
+		conn, err := grpc.Dial(fmt.Sprintf(":%v", port), opts...)
 		if err != nil {
 			log.Fatalf("Could not connect: %v", err)
 		}
-		defer conn.Close()
-		client = grpcChat.NewServicesClient(conn)
-		ServerConns[port32] = client
+		//defer conn.Close()
+		clientApi := grpcChat.NewServicesClient(conn)
+
+		c.serverConns[port] = clientApi
+		log.Printf("Connection successful for port %v", port)
+
 	}
 }
 
-func parseInput() {
+func (c *Client) parseInput() {
 	reader := bufio.NewReader(os.Stdin)
 	log.Println("Type your bid. example: bid 200")
 	fmt.Println("--------------------")
@@ -94,39 +107,74 @@ func parseInput() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			clientId, err := strconv.ParseInt(*clientsName, 10, 64)
-			if err != nil {
-				log.Fatal(err)
-			}
-			Bid(val, clientId)
+			c.Bid(val, int64(*clientId))
 		case "result":
-			Result()
+			c.Result()
+		case "start":
+			c.StartAuction()
 		default:
 			log.Println("type a valid input")
 		}
 	}
 }
 
-func Bid(val int64, bidderID int64) {
+func (c *Client) Bid(val int64, bidderID int64) {
 	bid := &grpcChat.BidAmount{
 		Amount:   val,
 		BidderId: bidderID,
 	}
 
-	ack, _ := client.Bid(context.Background(), bid)
+	resultChan := make(chan *grpcChat.Ack)
+	for _, v := range c.serverConns {
+		serverConn := v
+		go func() {
+			ack, err := serverConn.Bid(context.Background(), bid)
+			if err != nil {
+				log.Fatal(fmt.Printf("%v", err))
+			}
+			resultChan <- ack
+		}()
+	}
+	ack := <-resultChan
 	if ack.Ack {
 		log.Printf("%v placed a %v kr bid\n", bidderID, val)
 	} else {
-		log.Printf("Your bid has to be higher than the current leader %v kr\n", ack.HighestBid)
+		log.Printf("Invalid Bid: Either the auction is over or you bid below the current leader\n")
+	}
+
+}
+
+func (c *Client) Result() {
+	request := &grpcChat.ResultRequest{}
+	outcomeChan := make(chan *grpcChat.Outcome)
+	for _, v := range c.serverConns {
+		serverConn := v
+		go func() {
+			outcome, _ := serverConn.Result(context.Background(), request)
+			outcomeChan <- outcome
+		}()
+	}
+	outcome := <-outcomeChan
+	if outcome.Over {
+		log.Printf("The auction is over and the higest bid was %v kr by bidder %v\n", outcome.Outcome, outcome.Winner)
+	} else {
+		log.Printf("The current highest bid is %v kr by bidder %v\n", outcome.Outcome, outcome.Winner)
 	}
 }
 
-func Result() {
+func (c *Client) StartAuction() {
+	outcomeChan := make(chan bool)
 	request := &grpcChat.ResultRequest{}
-	outcome, _ := client.Result(context.Background(), request)
-	if outcome.Over {
-		log.Printf("The auction is over and the higest bid was %v kr\n", outcome.Outcome)
+	for _, v := range c.serverConns {
+		serverConn := v
+		go func() {
+			outcome, _ := serverConn.StartAuction(context.Background(), request)
+			outcomeChan <- outcome.Ack
+		}()
+	}
+	if !<-outcomeChan {
+		log.Println("Auction is already running")
 	} else {
-		log.Printf("The current highest bid is %v kr\n", outcome.Outcome)
+		log.Println("the Auction has started")
 	}
 }

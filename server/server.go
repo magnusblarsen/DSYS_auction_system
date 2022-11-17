@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"time"
 
 	grpcAuction "github.com/magnusblarsen/DSYS_auction_system/proto"
 	"google.golang.org/grpc"
@@ -20,11 +21,18 @@ type Server struct {
 	port             string
 	lamportTimestamp int64
 	highestBid       int64
+	isOver           bool
+	highestBidderID  int64
 }
 
 type response struct {
 	ack        bool
 	HighestBid int64
+}
+
+type result struct {
+	outcome int64
+	over    bool
 }
 
 var serverName = flag.String("name", "", "Senders name")
@@ -34,7 +42,16 @@ func main() {
 	flag.Parse()
 	configureLog()
 	log.Println("::server is starting::")
-	launchServer()
+	server := &Server{
+		serverName:       *serverName,
+		port:             *port,
+		highestBid:       0,
+		lamportTimestamp: 0,
+		isOver:           true,
+	}
+	go server.launchServer()
+	close := make(chan bool)
+	<-close
 }
 
 func configureLog() {
@@ -48,45 +65,71 @@ func configureLog() {
 	log.SetOutput(multiWriter)
 }
 
-func launchServer() {
+func (server *Server) launchServer() {
 	if *serverName == "" || *port == "" {
 		//TODO: fejl
 	}
 
-	list, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", *port))
+	list, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", server.port))
 	if err != nil {
 		log.Printf("Server %s: Failed to listen on port %s: %v", *serverName, *port, err)
 	}
 
 	grpcServer := grpc.NewServer()
-	server := &Server{
-		serverName:       *serverName,
-		port:             *port,
-		highestBid:       0,
-		lamportTimestamp: 0,
-	}
 	grpcAuction.RegisterServicesServer(grpcServer, server)
 	log.Printf("Server %s: Listening at %v\n", *serverName, list.Addr())
 
 	if err := grpcServer.Serve(list); err != nil {
 		log.Fatalf("failed to serve %v", err)
 	}
+
 }
 
 func (s *Server) Bid(ctx context.Context, bidAmount *grpcAuction.BidAmount) (*grpcAuction.Ack, error) {
-	if bidAmount.Amount > s.highestBid {
+	log.Println("server bid startet")
+	succes := false
+	if bidAmount.Amount > s.highestBid && !s.isOver {
 		s.highestBid = bidAmount.Amount
+		s.highestBidderID = bidAmount.BidderId
+		succes = true
 	}
 
 	response := (&grpcAuction.Ack{
-		Ack:        true,
-		HighestBid: s.highestBid,
+		Ack: succes,
 	})
 
 	return response, nil
 }
 func (s *Server) Result(ctx context.Context, resultRequest *grpcAuction.ResultRequest) (*grpcAuction.Outcome, error) {
-	return nil, nil
+
+	result := (&grpcAuction.Outcome{
+		Outcome: s.highestBid,
+		Over:    s.isOver,
+		Winner:  s.highestBidderID,
+	})
+
+	return result, nil
+}
+
+func (s *Server) StartAuction(ctx context.Context, resultRequest *grpcAuction.ResultRequest) (*grpcAuction.Ack, error) {
+	success := false
+
+	if s.isOver {
+		success = true
+		go s.startTimer()
+	}
+
+	ack := &grpcAuction.Ack{
+		Ack: success,
+	}
+	return ack, nil
+}
+
+func (s *Server) startTimer() {
+	s.highestBid = 0
+	s.isOver = false
+	time.Sleep(15 * time.Second)
+	s.isOver = true
 }
 
 // func sendToAllStreams(senderID string, newMessage string) error {
