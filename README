@@ -1,0 +1,8 @@
+
+Commands in client terminal:
+To bid in client type: bid <amount>
+EXAMPLE: bid 12
+
+To see status of auction type: result
+
+To start a new auction type: start
