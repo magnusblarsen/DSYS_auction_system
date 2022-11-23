@@ -124,20 +124,23 @@ func (c *Client) Bid(val int64, bidderID int64) {
 		BidderId: bidderID,
 	}
 
-	resultChan := make(chan *grpcChat.Ack)
+	var someAck *grpcChat.Ack
+	writeSuccesses := 0
 	for _, v := range c.serverConns {
 		serverConn := v
-		go func() {
-			ack, err := serverConn.Bid(context.Background(), bid)
-			if err != nil {
-				log.Println("One server has crashed. Skipping")
-				fmt.Print("-> ")
-			}
-			resultChan <- ack
-		}()
+		ack, err := serverConn.Bid(context.Background(), bid)
+		if err != nil {
+			log.Println("One server has crashed. Skipping")
+			fmt.Print("-> ")
+		} else {
+			writeSuccesses++
+			someAck = ack
+		}
 	}
-	ack := <-resultChan
-	if ack.Ack {
+	if writeSuccesses < len(c.serverConns)-1 {
+		log.Fatal("Too many server-crashes to handle arhhhhh")
+	}
+	if someAck.Ack {
 		log.Printf("%v placed a %v kr bid\n", bidderID, val)
 	} else {
 		log.Printf("Invalid Bid: Either the auction is over or you bid below the current leader\n")
@@ -147,44 +150,54 @@ func (c *Client) Bid(val int64, bidderID int64) {
 
 func (c *Client) Result() {
 	request := &grpcChat.ResultRequest{}
-	outcomeChan := make(chan *grpcChat.Outcome)
+	//outcomeChan := make(chan *grpcChat.Outcome)
+
+	var someOutcome *grpcChat.Outcome
+	readSuccesses := 0
 	for _, v := range c.serverConns {
 		serverConn := v
-		go func() {
-
-			outcome, err := serverConn.Result(context.Background(), request)
-			if err != nil {
-				log.Println("One server has crashed. Skipping")
-				fmt.Print("-> ")
-				return
-			}
-			outcomeChan <- outcome
-		}()
+		outcome, err := serverConn.Result(context.Background(), request)
+		if err != nil {
+			log.Println("One server has crashed. Skipping")
+			fmt.Print("-> ")
+			continue
+		}
+		readSuccesses++
+		someOutcome = outcome
+		if readSuccesses > 1 {
+			break
+		}
 	}
-	outcome := <-outcomeChan
-	if outcome.Over {
-		log.Printf("The auction is over and the higest bid was %v kr by bidder %v\n", outcome.Outcome, outcome.Winner)
+	if readSuccesses < 2 {
+		log.Fatal("Too many server-crashes to handle arhhhhh")
+	}
+	if someOutcome.Over {
+		log.Printf("The auction is over and the higest bid was %v kr by bidder %v\n", someOutcome.Outcome, someOutcome.Winner)
 	} else {
-		log.Printf("The current highest bid is %v kr by bidder %v\n", outcome.Outcome, outcome.Winner)
+		log.Printf("The current highest bid is %v kr by bidder %v\n", someOutcome.Outcome, someOutcome.Winner)
 	}
 }
 
 func (c *Client) StartAuction() {
-	outcomeChan := make(chan bool)
 	request := &grpcChat.ResultRequest{}
+	var someAck *grpcChat.Ack
+	writeSuccesses := 0
 	for _, v := range c.serverConns {
 		serverConn := v
-		go func() {
-			outcome, err := serverConn.StartAuction(context.Background(), request)
-			if err != nil {
-				log.Println("One server has crashed. Skipping")
-				fmt.Print("-> ")
-				return
-			}
-			outcomeChan <- outcome.Ack
-		}()
+		outcome, err := serverConn.StartAuction(context.Background(), request)
+		if err != nil {
+			log.Println("One server has crashed. Skipping")
+			fmt.Print("-> ")
+			continue
+		} else {
+			writeSuccesses++
+			someAck = outcome
+		}
 	}
-	if !<-outcomeChan {
+	if writeSuccesses < len(c.serverConns)-1 {
+		log.Fatal("Too many server-crashes to handle arhhhhh")
+	}
+	if !someAck.Ack {
 		log.Println("Auction is already running")
 	} else {
 		log.Println("the Auction has started")
