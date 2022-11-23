@@ -26,7 +26,7 @@ type Client struct {
 func main() {
 	flag.Parse()
 
-	file, err := os.OpenFile(fmt.Sprintf("client_%d", *clientId), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	file, err := os.OpenFile(fmt.Sprintf("logs\\client_%d", *clientId), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
@@ -127,6 +127,9 @@ func (c *Client) Bid(val int64, bidderID int64) {
 	resultChan := make(chan *grpcChat.Ack)
 	for _, v := range c.serverConns {
 		serverConn := v
+		if serverConn == nil {
+			continue
+		}
 		go func() {
 			ack, err := serverConn.Bid(context.Background(), bid)
 			if err != nil {
@@ -149,6 +152,9 @@ func (c *Client) Result() {
 	outcomeChan := make(chan *grpcChat.Outcome)
 	for _, v := range c.serverConns {
 		serverConn := v
+		if serverConn == nil {
+			continue
+		}
 		go func() {
 			outcome, _ := serverConn.Result(context.Background(), request)
 			outcomeChan <- outcome
@@ -167,6 +173,9 @@ func (c *Client) StartAuction() {
 	request := &grpcChat.ResultRequest{}
 	for _, v := range c.serverConns {
 		serverConn := v
+		if serverConn == nil {
+			continue
+		}
 		go func() {
 			outcome, _ := serverConn.StartAuction(context.Background(), request)
 			outcomeChan <- outcome.Ack

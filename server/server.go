@@ -55,7 +55,7 @@ func main() {
 }
 
 func configureLog() {
-	file, err := os.OpenFile(fmt.Sprintf("server_%s", *serverName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	file, err := os.OpenFile(fmt.Sprintf("logs\\server_%s", *serverName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		log.Fatalf("error opening file: %v", err)
 	}
