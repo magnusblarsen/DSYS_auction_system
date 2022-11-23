@@ -127,13 +127,11 @@ func (c *Client) Bid(val int64, bidderID int64) {
 	resultChan := make(chan *grpcChat.Ack)
 	for _, v := range c.serverConns {
 		serverConn := v
-		if serverConn == nil {
-			continue
-		}
 		go func() {
 			ack, err := serverConn.Bid(context.Background(), bid)
 			if err != nil {
-				log.Fatal(fmt.Printf("%v", err))
+				log.Println("One server has crashed. Skipping")
+				fmt.Print("-> ")
 			}
 			resultChan <- ack
 		}()
@@ -152,11 +150,14 @@ func (c *Client) Result() {
 	outcomeChan := make(chan *grpcChat.Outcome)
 	for _, v := range c.serverConns {
 		serverConn := v
-		if serverConn == nil {
-			continue
-		}
 		go func() {
-			outcome, _ := serverConn.Result(context.Background(), request)
+
+			outcome, err := serverConn.Result(context.Background(), request)
+			if err != nil {
+				log.Println("One server has crashed. Skipping")
+				fmt.Print("-> ")
+				return
+			}
 			outcomeChan <- outcome
 		}()
 	}
@@ -173,11 +174,13 @@ func (c *Client) StartAuction() {
 	request := &grpcChat.ResultRequest{}
 	for _, v := range c.serverConns {
 		serverConn := v
-		if serverConn == nil {
-			continue
-		}
 		go func() {
-			outcome, _ := serverConn.StartAuction(context.Background(), request)
+			outcome, err := serverConn.StartAuction(context.Background(), request)
+			if err != nil {
+				log.Println("One server has crashed. Skipping")
+				fmt.Print("-> ")
+				return
+			}
 			outcomeChan <- outcome.Ack
 		}()
 	}
