@@ -25,16 +25,6 @@ type Server struct {
 	highestBidderID  int64
 }
 
-type response struct {
-	ack        bool
-	HighestBid int64
-}
-
-type result struct {
-	outcome int64
-	over    bool
-}
-
 var serverName = flag.String("name", "", "Senders name")
 var port = flag.String("port", "", "Server port")
 
@@ -67,7 +57,7 @@ func configureLog() {
 
 func (server *Server) launchServer() {
 	if *serverName == "" || *port == "" {
-		//TODO: fejl
+		log.Fatalln("You must write port and name of the server")
 	}
 
 	list, err := net.Listen("tcp", fmt.Sprintf("localhost:%s", server.port))
@@ -131,19 +121,3 @@ func (s *Server) startTimer() {
 	time.Sleep(15 * time.Second)
 	s.isOver = true
 }
-
-// func sendToAllStreams(senderID string, newMessage string) error {
-// 	lamportTimestamp++
-// 	for _, v := range connectedClientStreams {
-// 		err := v.stream.Send(&grpcAuction.ServerMessage{
-// 			SenderID:    senderID,
-// 			Message:     newMessage,
-// 			LamportTime: lamportTimestamp,
-// 		})
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 	}
-// 	return nil
-// }

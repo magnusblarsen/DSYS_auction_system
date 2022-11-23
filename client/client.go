@@ -44,10 +44,6 @@ func main() {
 	clientHandle.connectToServers()
 
 	clientHandle.parseInput()
-	//FIXME: Lige nu har vi ikke nogen defer conn.Close()
-	// for _, s := range clientHandle.serverConns {
-	// 	defer s.Close()
-	// }
 }
 
 func (c *Client) connectToServers() {
@@ -74,7 +70,6 @@ func (c *Client) connectToServers() {
 		if err != nil {
 			log.Fatalf("Could not connect: %v", err)
 		}
-		//defer conn.Close()
 		clientApi := grpcChat.NewServicesClient(conn)
 
 		c.serverConns[port] = clientApi
@@ -150,7 +145,6 @@ func (c *Client) Bid(val int64, bidderID int64) {
 
 func (c *Client) Result() {
 	request := &grpcChat.ResultRequest{}
-	//outcomeChan := make(chan *grpcChat.Outcome)
 
 	var someOutcome *grpcChat.Outcome
 	readSuccesses := 0
